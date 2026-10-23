@@ -42,7 +42,7 @@ def ask_llm(system_prompt: str, user_prompt: str) -> str:
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.2,
-        max_completion_tokens=3000,
+        max_completion_tokens=6000,
     )
 
     content = response.choices[0].message.content
@@ -53,38 +53,97 @@ def ask_llm(system_prompt: str, user_prompt: str) -> str:
 
 
 def generate_plan(user_request: str) -> Plan:
-    """Generate and validate an execution plan."""
-    raw = ask_llm(
-        system_prompt=(
-            "You are a business-document planning agent. "
-            "Return only valid JSON. Do not use Markdown fences. "
-            "Create a concise, actionable plan for the request. "
-            "Use reasonable assumptions for missing nonessential details. "
-            "Use only these task actions: draft_content, review_content, "
-            "create_document. Include all three actions in a sensible order."
-        ),
-        user_prompt=f"""
-            Create a plan for this request:
+    """Generate a plan and retry once if its structure is invalid."""
 
-            {user_request}
-
-            Return a JSON object with:
-            - title: a suitable document title
-            - document_type: e.g. proposal, project plan, report, SOP
-            - assumptions: list of reasonable assumptions
-            - sections: ordered list of document section headings
-            - tasks: list of objects containing id, description, action
-
-            The task actions must be draft_content, review_content, or create_document.
-        """,
+    system_prompt = (
+        "You are a business-document planning agent. "
+        "Return exactly one valid JSON object without Markdown fences. "
+        "The object must contain all five fields: title, document_type, "
+        "assumptions, tasks, and sections. "
+        "Every task must contain id, description, and action. "
+        "Task IDs must be strings. "
+        "Allowed actions are draft_content, review_content, "
+        "and create_document. "
+        "Include all three actions in a sensible order. "
+        "Provide between 2 and 12 section headings. "
+        "Create between 1 and 6 tasks. "
+        "Use reasonable assumptions for missing information."
     )
 
-    try:
-        plan = Plan.model_validate_json(raw)
-    except (ValidationError, ValueError) as exc:
-        raise ValueError("The model returned an invalid execution plan.") from exc
+    user_prompt = f"""
+Create an execution plan for this request:
 
-    # Ensure the execution pipeline is complete and correctly ordered.
+{user_request}
+
+Return a JSON object with this exact structure:
+
+{{
+  "title": "Document title",
+  "document_type": "Project Plan",
+  "assumptions": ["Assumption 1"],
+  "sections": [
+    "Executive Summary",
+    "Recommendations"
+  ],
+  "tasks": [
+    {{
+      "id": "T1",
+      "description": "Draft the document content",
+      "action": "draft_content"
+    }},
+    {{
+      "id": "T2",
+      "description": "Review the content",
+      "action": "review_content"
+    }},
+    {{
+      "id": "T3",
+      "description": "Create the Word document",
+      "action": "create_document"
+    }}
+  ]
+}}
+
+Adapt the title, assumptions, sections, and task descriptions
+to the user's actual request. Return all required fields.
+"""
+
+    plan = None
+    last_error = None
+
+    # First attempt plus one recovery attempt.
+    for attempt in range(2):
+        prompt = user_prompt
+
+        if attempt == 1:
+            prompt += f"""
+
+Your previous response did not satisfy the required schema.
+Validation error:
+{last_error}
+
+Previous response:
+{raw}
+
+Correct the response. Include every required field and ensure
+all task actions and section counts meet the specified limits.
+Return only the corrected JSON object.
+"""
+
+        raw = ask_llm(system_prompt, prompt)
+
+        try:
+            plan = Plan.model_validate_json(raw)
+            break
+        except ValidationError as exc:
+            last_error = exc
+
+    if plan is None:
+        raise ValueError(
+            "The model returned an invalid plan after two attempts."
+        ) from last_error
+
+    # Ensure every required execution action exists.
     required_actions = [
         "draft_content",
         "review_content",
@@ -98,12 +157,12 @@ def generate_plan(user_request: str) -> Plan:
             plan.tasks.append(
                 PlannedTask(
                     id=action,
-                    description=f"Execute the {action.replace('_', ' ')} step.",
+                    description=(f"Execute the {action.replace('_', ' ')} step."),
                     action=action,
                 )
             )
 
-    # Normalize order so every prerequisite runs before its dependent step.
+    # Enforce prerequisite order.
     order = {action: index for index, action in enumerate(required_actions)}
     plan.tasks.sort(key=lambda task: order[task.action])
 
@@ -133,13 +192,24 @@ def execute_plan(user_request: str, plan: Plan) -> dict:
                 if task.action == "draft_content":
                     content = ask_llm(
                         system_prompt=(
-                            "You are a professional business writer. "
-                            "Create a complete, practical document using "
-                            "the requested sections. Use clear headings, "
-                            "specific recommendations, and realistic detail. "
-                            "Do not invent real-world facts or claim that "
-                            "unverified actions have occurred. Label examples "
-                            "and assumptions clearly."
+                            "You are a careful business analyst and project manager. "
+                            "Create a complete, actionable business document using the "
+                            "user's request, the provided assumptions, and the required sections. "
+                            "Do not invent project-status figures, completed work, stakeholder "
+                            "decisions, test results, or other facts that were not provided. "
+                            "When information is missing, state the uncertainty and label any "
+                            "proposed values as illustrative assumptions. "
+                            "Use a realistic, detailed plan with dates or relative time periods, "
+                            "owners or responsible roles, dependencies, risks, mitigations, "
+                            "and measurable acceptance criteria where relevant. "
+                            "Format all tables as valid Markdown pipe tables, including a "
+                            "header row and a separator row. "
+                            "Complete every requested section and every table row. "
+                            "Do not end mid-sentence or leave any section unfinished. "
+                            "Return only the document content in Markdown."
+                            "Do not create a separate Assumptions section in the document body; "
+                            "the application inserts that section automatically. "
+                            "Use the supplied assumptions consistently throughout the document. "
                         ),
                         user_prompt=f"""
                             User request:
@@ -161,10 +231,15 @@ def execute_plan(user_request: str, plan: Plan) -> dict:
 
                     content = ask_llm(
                         system_prompt=(
-                            "You are a meticulous business-document editor. "
-                            "Correct inconsistencies, improve clarity, remove "
-                            "repetition, and preserve useful details. Return "
-                            "only the revised document, without commentary."
+                            "You are a strict business-document quality reviewer. "
+                            "Review the draft against the original user request and required sections. "
+                            "Remove unsupported factual claims or clearly label them as illustrative "
+                            "assumptions. Check that the timeline, dependencies, risks, mitigations, "
+                            "and measurable success criteria are coherent. "
+                            "Ensure all tables use valid Markdown pipe-table syntax. "
+                            "Remove duplicate sections and repair incomplete sentences or tables. "
+                            "Preserve useful detail and return the complete revised document, "
+                            "not a summary or a list of suggested changes."
                         ),
                         user_prompt=f"""
                             Review this document against the original request.

@@ -11,13 +11,13 @@ OUTPUT_DIR = PROJECT_ROOT / "outputs"
 
 
 def clean_inline(text: str) -> str:
-    """Remove basic Markdown formatting while preserving its text."""
+    """Normalize basic HTML and Markdown formatting."""
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
     text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
     text = re.sub(r"__(.*?)__", r"\1", text)
     text = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", text)
     text = re.sub(r"`([^`]+)`", r"\1", text)
     return text.strip()
-
 
 def is_table_line(line: str) -> bool:
     """Identify a Markdown table row."""
