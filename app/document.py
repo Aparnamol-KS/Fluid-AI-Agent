@@ -1,7 +1,6 @@
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
 
 from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
@@ -105,7 +104,12 @@ def set_cell_margins(cell, top=90, start=110, bottom=90, end=110) -> None:
         margins = OxmlElement("w:tcMar")
         properties.append(margins)
 
-    for edge, value in (("top", top), ("start", start), ("bottom", bottom), ("end", end)):
+    for edge, value in (
+        ("top", top),
+        ("start", start),
+        ("bottom", bottom),
+        ("end", end),
+    ):
         element = margins.find(qn(f"w:{edge}"))
         if element is None:
             element = OxmlElement(f"w:{edge}")
@@ -151,8 +155,16 @@ def set_keep_with_next(paragraph) -> None:
     paragraph.paragraph_format.keep_with_next = True
 
 
-def add_inline_runs(paragraph, text: str, *, font_name="Aptos", font_size=10,
-                    color=DARK_TEXT, bold=False, italic=False):
+def add_inline_runs(
+    paragraph,
+    text: str,
+    *,
+    font_name="Aptos",
+    font_size=10,
+    color=DARK_TEXT,
+    bold=False,
+    italic=False,
+):
     """Add basic Markdown inline formatting without treating text as HTML."""
     pattern = re.compile(
         r"(\*\*.+?\*\*|__.+?__|(?<!\*)\*[^*\n]+\*(?!\*)|"
@@ -161,7 +173,7 @@ def add_inline_runs(paragraph, text: str, *, font_name="Aptos", font_size=10,
     position = 0
     for match in pattern.finditer(text):
         if match.start() > position:
-            run = paragraph.add_run(text[position:match.start()])
+            run = paragraph.add_run(text[position : match.start()])
             _style_run(run, font_name, font_size, color, bold, italic)
         token = match.group(0)
         if token.startswith(("**", "__")):
@@ -202,7 +214,11 @@ def add_code_block(doc: Document, code_lines: list[str], language: str = "") -> 
     table = doc.add_table(rows=1, cols=1)
     table.autofit = False
     cell = table.cell(0, 0)
-    cell.width = doc.sections[0].page_width - doc.sections[0].left_margin - doc.sections[0].right_margin
+    cell.width = (
+        doc.sections[0].page_width
+        - doc.sections[0].left_margin
+        - doc.sections[0].right_margin
+    )
     set_cell_shading(cell, CODE_BACKGROUND)
     set_cell_margins(cell, top=120, start=150, bottom=120, end=150)
     set_table_borders(table, color=BORDER_COLOR, size="3")
@@ -239,9 +255,7 @@ def add_markdown_table(doc: Document, rows: list[str]) -> None:
         doc.add_paragraph(clean_inline(rows[0]))
         return
 
-    normalized_rows = [
-        row + [""] * (column_count - len(row)) for row in parsed_rows
-    ]
+    normalized_rows = [row + [""] * (column_count - len(row)) for row in parsed_rows]
     table = doc.add_table(rows=0, cols=column_count)
     table.style = "Table Grid"
     table.autofit = False
@@ -305,7 +319,9 @@ def _set_document_properties(doc: Document, title: str, document_type: str) -> N
     props.author = "Fluid AI Agent"
 
 
-def create_docx(title: str, document_type: str, content: str, assumptions: list[str]) -> Path:
+def create_docx(
+    title: str, document_type: str, content: str, assumptions: list[str]
+) -> Path:
     """Create a polished Word document from Markdown-like content."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -330,7 +346,12 @@ def create_docx(title: str, document_type: str, content: str, assumptions: list[
     normal.paragraph_format.line_spacing = 1.08
     normal.paragraph_format.widow_control = True
 
-    for style_name, size in (("Title", 25), ("Heading 1", 16), ("Heading 2", 12), ("Heading 3", 10.5)):
+    for style_name, size in (
+        ("Title", 25),
+        ("Heading 1", 16),
+        ("Heading 2", 12),
+        ("Heading 3", 10.5),
+    ):
         style = styles[style_name]
         style.font.name = "Aptos Display"
         style.font.size = Pt(size)
@@ -377,7 +398,7 @@ def create_docx(title: str, document_type: str, content: str, assumptions: list[
         # Fenced code blocks, including ASCII architecture diagrams.
         fence_match = re.match(r"^\s*(```+|~~~+)\s*(.*)$", raw_line)
         if fence_match:
-            fence = fence_match.group(1)
+            # fence = fence_match.group(1)
             if not in_code:
                 in_code = True
                 code_lines = []
