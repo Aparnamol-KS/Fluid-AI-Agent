@@ -1,6 +1,8 @@
 import json
+import logging
 import os
 from pathlib import Path
+from pprint import pformat
 from typing import Any, TypedDict
 
 from dotenv import load_dotenv
@@ -17,6 +19,9 @@ client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 MAX_REVISIONS = 2
 MAX_AGENT_TURNS = 8
+
+
+logger = logging.getLogger(__name__)
 
 
 class AgentState(TypedDict, total=False):
@@ -100,6 +105,38 @@ TOOL_DEFINITIONS = [
 ]
 
 
+# def log_data(stage: str, label: str, data) -> None:
+#     """Print intermediate agent data for debugging and demonstration."""
+#     logger.info("\n%s\n%s\n%s", "=" * 25, f"[{stage}] {label}", "=" * 25)
+#     logger.info("%s", pformat(data, width=100, sort_dicts=False))
+
+
+def log_data(stage: str, label: str, data) -> None:
+    print(f"\n{'=' * 20} [{stage}] {label} {'=' * 20}", flush=True)
+    print(pformat(data, width=100, sort_dicts=False), flush=True)
+
+
+def log_text_preview(
+    stage: str,
+    label: str,
+    content: str,
+    limit: int = 600,
+) -> None:
+    preview = content[:limit]
+
+    if len(content) > limit:
+        preview += "\n... [truncated]"
+
+    log_data(
+        stage,
+        label,
+        {
+            "total_characters": len(content),
+            "preview": preview,
+        },
+    )
+
+
 def _call_llm(system: str, user: str) -> str:
     response = client.chat.completions.create(
         model=MODEL,
@@ -176,8 +213,6 @@ Validated plan:
 {plan.model_dump_json(indent=2)}
 """
 
-    
-
     messages = [
         {"role": "system", "content": system},
         {
@@ -186,8 +221,6 @@ Validated plan:
         },
         *state.get("messages", []),
     ]
-
-    
 
     response = client.chat.completions.create(
         model=MODEL,
@@ -292,6 +325,12 @@ def tool_node(state: AgentState) -> dict:
                     f"Sections: {json.dumps(plan.sections)}\n"
                     f"Assumptions: {json.dumps(plan.assumptions)}",
                 )
+                log_text_preview(
+                    "DRAFT",
+                    "Generated Draft Preview",
+                    content,
+                    limit=600,
+                )
                 tasks = _update_task(
                     {**state, "task_results": tasks}, name, "completed"
                 )
@@ -300,7 +339,12 @@ def tool_node(state: AgentState) -> dict:
             elif name == "review_content":
                 if not content:
                     raise ValueError("Draft the document before reviewing it.")
-
+                log_text_preview(
+                    "REVIEW",
+                    "Input Draft Preview",
+                    content,
+                    limit=300,
+                )
                 review = _call_llm(
                     "Review the draft against the request and required sections. "
                     "Check for missing requirements, contradictions, unsupported "
@@ -323,10 +367,22 @@ def tool_node(state: AgentState) -> dict:
                     raise ValueError("Review 'feedback' must be a string.")
 
                 if set(result.keys()) != {"passed", "feedback"}:
-                    raise ValueError("Review response contains unexpected or missing keys.")
+                    raise ValueError(
+                        "Review response contains unexpected or missing keys."
+                    )
+
                 passed = result["passed"]
                 feedback = result["feedback"]
 
+                
+                log_data(
+                    "REVIEW",
+                    "Review Result",
+                    {
+                        "passed": passed,
+                        "feedback": feedback,
+                    },
+                )
                 if passed:
                     tasks = _update_task(
                         {**state, "task_results": tasks}, name, "completed"
@@ -352,6 +408,12 @@ def tool_node(state: AgentState) -> dict:
                     f"Feedback: {feedback}\n"
                     f"Draft:\n{content}",
                 )
+                log_text_preview(
+                    "REVISION",
+                    "Revised Draft Preview",
+                    content,
+                    limit=600,
+                )
                 revisions += 1
                 passed = False
                 tasks = _update_task(
@@ -366,6 +428,16 @@ def tool_node(state: AgentState) -> dict:
                     raise ValueError(
                         "Review must pass or the revision limit must be reached."
                     )
+                log_data(
+                    "DOCUMENT",
+                    "Final Document Input",
+                    {
+                        "title": plan.title,
+                        "document_type": plan.document_type,
+                        "assumptions": plan.assumptions,
+                        "content": content,
+                    },
+                )
                 output_path = str(
                     create_docx(
                         title=plan.title,
