@@ -6,7 +6,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
 from app.agent import generate_plan
-from app.graph_agent import execute_graph
+from app.graph_agent import execute_graph, log_data
 from app.schemas import AgentRequest, AgentResponse
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,8 @@ async def run_agent(payload: AgentRequest):
             generate_plan,
             payload.request,
         )
+
+        log_data("PLANNING", "Generated Document Plan", plan)
     except Exception as exc:
         logger.exception("Agent planning failed")
         raise HTTPException(
