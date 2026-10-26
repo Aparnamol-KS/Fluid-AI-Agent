@@ -1,18 +1,16 @@
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
-import logging
 
-
-from app.agent import (
-    AgentExecutionError,
-    execute_plan,
-    generate_plan,
-)
+from app.agent import generate_plan
+from app.graph_agent import execute_graph
 from app.schemas import AgentRequest, AgentResponse
+
 logger = logging.getLogger(__name__)
+
 app = FastAPI(
     title="Fluid AI Autonomous Agent",
     description=(
@@ -32,11 +30,14 @@ def health_check():
 
 @app.post("/agent", response_model=AgentResponse)
 async def run_agent(payload: AgentRequest):
+    # Step 1: Generate and validate the document plan.
     try:
-        plan = await run_in_threadpool(generate_plan, payload.request)
+        plan = await run_in_threadpool(
+            generate_plan,
+            payload.request,
+        )
     except Exception as exc:
         logger.exception("Agent planning failed")
-
         raise HTTPException(
             status_code=502,
             detail=(
@@ -45,26 +46,28 @@ async def run_agent(payload: AgentRequest):
             ),
         ) from exc
 
+    # Step 2: Execute the plan using the LangGraph agent.
     try:
         result = await run_in_threadpool(
-            execute_plan,
+            execute_graph,
             payload.request,
             plan,
         )
-    except AgentExecutionError as exc:
+    except Exception as exc:
+        logger.exception("LangGraph execution failed")
         raise HTTPException(
             status_code=502,
-            detail={
-                "message": str(exc),
-                "plan": exc.plan,
-                "execution_log": exc.execution_log,
-            },
+            detail=(
+                f"Agent execution failed: {type(exc).__name__}. "
+                "Check the server terminal for details."
+            ),
         ) from exc
 
+    # Step 3: Return the existing API response format.
     filename = Path(result["document_path"]).name
 
     return AgentResponse(
-        message="The agent completed the plan and generated a Word document.",
+        message="The agent completed the workflow and generated a Word document.",
         title=result["title"],
         plan=result["plan"],
         assumptions=result["assumptions"],
@@ -77,7 +80,10 @@ async def run_agent(payload: AgentRequest):
 def download_document(filename: str):
     # Only serve DOCX files from the designated output directory.
     if Path(filename).name != filename or not filename.endswith(".docx"):
-        raise HTTPException(status_code=400, detail="Invalid filename.")
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid filename.",
+        )
 
     file_path = (OUTPUT_DIR / filename).resolve()
 
