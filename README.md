@@ -89,28 +89,9 @@ The agent plans the document, generates and reviews the content, and produces a 
 
 ## Document Generation Approaches
 
-This project explores two approaches to AI-powered document generation.
+The project evolved from a predefined workflow to a model-directed agent workflow.
 
-### 1. `app/agent.py` — Plan-Based Document Generation
+- **`app/agent.py` — Planning and Original Workflow:** Generates a structured document plan using the LLM. The original `execute_plan()` function follows predefined steps to execute the plan.
+- **`app/graph_agent.py` — Agent Workflow:** Uses Groq tool calling and LangGraph to manage drafting, reviewing, conditional revision, and Word document creation. The model selects tools based on the current workflow state and review results.
 
-This is the initial implementation, designed around a structured document-generation plan.
-
-When a user submits a request, the system uses an LLM to identify the document type, title, assumptions, sections, and tasks needed to create the document. The resulting plan provides a structured representation of what the document should contain.
-
-
-### 2. `app/graph_agent.py` — Model-Directed Agent Workflow
-
-The second implementation extends the system with a more flexible, model-directed workflow using Groq tool calling and LangGraph.
-
-Instead of relying only on a predefined sequence of operations, the model can select the next tool based on the current state and review results. The workflow supports:
-
-- Drafting content based on the document plan.
-- Reviewing the generated content.
-- Revising the draft when the review identifies issues.
-- Creating the final Word document when the content is ready.
-
-The workflow also tracks execution state and task results, with limits on revisions and agent turns to prevent uncontrolled execution.
-
-The initial implementation focuses on **structured planning**, while the second introduces **model-directed execution and conditional workflows**.
-
-
+The current application retains `generate_plan()` from `agent.py` and uses `graph_agent.py` for execution, enabling more flexible, model-directed workflows.
