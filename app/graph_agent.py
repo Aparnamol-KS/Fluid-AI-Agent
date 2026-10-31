@@ -105,12 +105,6 @@ TOOL_DEFINITIONS = [
 ]
 
 
-# def log_data(stage: str, label: str, data) -> None:
-#     """Print intermediate agent data for debugging and demonstration."""
-#     logger.info("\n%s\n%s\n%s", "=" * 25, f"[{stage}] {label}", "=" * 25)
-#     logger.info("%s", pformat(data, width=100, sort_dicts=False))
-
-
 def log_data(stage: str, label: str, data) -> None:
     print(f"\n{'=' * 20} [{stage}] {label} {'=' * 20}", flush=True)
     print(pformat(data, width=100, sort_dicts=False), flush=True)
